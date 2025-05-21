@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8" />
+  <title>Task Dashboard with Notifications & Sorting</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+  <div class="max-w-4xl mx-auto p-6">
+    <h1 class="text-3xl font-bold mb-4 text-center">📝 Task Dashboard</h1>
+
+    <!-- Upload Form -->
+    <form action="/upload" method="post" enctype="multipart/form-data" class="mb-6 flex items-center gap-4 bg-white p-4 rounded shadow">
+      <input type="file" name="image" accept="image/*" class="border p-2 rounded w-full" />
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Upload</button>
+    </form>
+
+    <!-- Filter and Sort -->
+    <form method="get" action="/" class="mb-4 flex flex-wrap gap-4 items-center">
+      <label>
+        Filter:
+        <select name="filter" onchange="this.form.submit()" class="border px-2 py-1 rounded">
+          <option value="all" {% if filter_status == 'all' %}selected{% endif %}>All</option>
+          <option value="completed" {% if filter_status == 'completed' %}selected{% endif %}>Completed</option>
+          <option value="pending" {% if filter_status == 'pending' %}selected{% endif %}>Pending</option>
+        </select>
+      </label>
+
+      <label>
+        Sort by:
+        <select name="sort" id="sortSelect" class="border px-2 py-1 rounded">
+          <option value="created" selected>Created At</option>
+          <option value="reminder">Reminder</option>
+        </select>
+      </label>
+    </form>
+
+    <!-- Task List -->
+    <div class="bg-white p-4 rounded shadow">
+      <h2 class="text-xl font-semibold mb-4">Tasks</h2>
+      {% if tasks %}
+        <ul id="taskList" class="space-y-4">
+          {% for task in tasks %}
+            <li data-created="{{ task.created_at }}" data-reminder="{{ task.reminder or '' }}" class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-3 task-item {% if task.reminder and (task.reminder < now_iso) and (not task.done) %}bg-red-100{% endif %}">
+              <div class="flex items-center gap-3">
+                <!-- Toggle -->
+                <form action="/toggle/{{ loop.index0 }}" method="post">
+                  <button class="text-green-600 hover:text-green-800">
+                    {% if task.done %}
+                      ✅
+                    {% else %}
+                      ⬜
+                    {% endif %}
+                  </button>
+                </form>
+
+                <!-- Editable Text -->
+                <form action="/edit/{{ loop.index0 }}" method="post" class="flex items-center gap-2">
+                  <input type="text" name="text" value="{{ task.text }}" class="border-b p-1 bg-transparent w-64 {% if task.done %}line-through text-gray-500{% endif %}" />
+                  <button class="text-blue-500 hover:text-blue-700" title="Save Changes">💾</button>
+                </form>
+              </div>
+
+              <div class="flex flex-col md:flex-row gap-2 text-sm text-gray-500 items-center">
+                <span>🕒 {{ task.created_at[:10] }}</span>
+
+                <!-- Reminder -->
+                <form action="/reminder/{{ loop.index0 }}" method="post" class="flex items-center gap-1">
+                  <input
+                    type="datetime-local"
+                    name="reminder"
+                    value="{{ task.reminder or '' }}"
+                    class="border px-1 py-0.5 rounded text-sm reminder-input"
+                  />
+                  <button class="text-purple-600 hover:text-purple-800" title="Set Reminder">🔔</button>
+                </form>
+
+                <!-- Delete -->
+                <form action="/delete/{{ loop.index0 }}" method="post">
+                  <button class="text-red-500 hover:text-red-700" title="Delete Task">🗑️</button>
+                </form>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-gray-500">No tasks found.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    const nowISO = new Date().toISOString();
+
+    // Sorting logic
+    document.getElementById('sortSelect').addEventListener('change', function() {
+      const sortBy = this.value;
+      const list = document.getElementById('taskList');
+      const items = Array.from(list.children);
+
+      items.sort((a, b) => {
+        if(sortBy === 'created') {
+          return new Date(b.dataset.created) - new Date(a.dataset.created);
+        } else if(sortBy === 'reminder') {
+          const aRem = a.dataset.reminder || '';
+          const bRem = b.dataset.reminder || '';
+          if(!aRem) return 1;
+          if(!bRem) return -1;
+          return new Date(aRem) - new Date(bRem);
+        }
+      });
+
+      items.forEach(item => list.appendChild(item));
+    });
+
+    // Notifications for upcoming reminders
+    function checkReminders() {
+      if (!('Notification' in window)) {
+        console.log('This browser does not support notifications.');
+        return;
+      }
+
+      if (Notification.permission !== 'granted') {
+        Notification.requestPermission();
+      }
+
+      const now = new Date();
+      const tasks = document.querySelectorAll('.task-item');
+
+      tasks.forEach(task => {
+        const reminder = task.dataset.reminder;
+        if (!reminder) return;
+
+        const reminderDate = new Date(reminder);
+        const done = task.querySelector('button').textContent.trim() === '✅';
+
+        if (done) return; // skip done tasks
+
+        const diffMs = reminderDate - now;
+        const diffMins = diffMs / 60000;
+
+        if (diffMins > 0 && diffMins <= 15) {
+          // Notify only once per session, so use data attribute
+          if (!task.dataset.notified) {
+            new Notification('Task Reminder', {
+              body: task.querySelector('input[name="text"]').value + ' is due soon!',
+              icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827970.png'
+            });
+            task.dataset.notified = 'true';
+          }
+        }
+      });
+    }
+
+    // Check reminders every minute
+    setInterval(checkReminders, 60000);
+    // Also check immediately on load
+    checkReminders();
+  </script>
+</body>
+</html>
